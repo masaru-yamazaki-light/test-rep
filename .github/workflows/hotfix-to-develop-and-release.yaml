@@ -24,11 +24,13 @@ jobs:
         with:
           fetch-depth: 0
 
-      # 環境変数にhotfixブランチ名を保存
-      - name: Extract Hotfix Branch Name
+      # 環境変数にHotfixブランチ名とバージョンを保存
+      - name: Extract Hotfix Branch Name and Version
         run: |
           HOTFIX_BRANCH=${{ github.head_ref }}
+          HOTFIX_VERSION=${HOTFIX_BRANCH#hotfix/v}
           echo "HOTFIX_BRANCH=${HOTFIX_BRANCH}" >> $GITHUB_ENV
+          echo "HOTFIX_VERSION=${HOTFIX_VERSION}" >> $GITHUB_ENV
 
       # DevelopブランチへのPRを作成
       - name: Create PR to Develop
@@ -41,20 +43,48 @@ jobs:
             --title "Hotfix: Merge ${{ env.HOTFIX_BRANCH }} into Develop" \
             --body "This is an automated PR to merge hotfix changes into the develop branch."
 
+      # 他のHotfixブランチへのPRを作成
+      - name: Create PR to Next Hotfix Branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOTFIX_VERSION: ${{ env.HOTFIX_VERSION }}
+          HOTFIX_BRANCH: ${{ env.HOTFIX_BRANCH }}
+        run: |
+          # すべてのHotfixブランチを取得
+          HOTFIX_BRANCHES=$(git branch -r | grep -E 'origin/hotfix/v[0-9]+\.[0-9]+\.[0-9]+' | sed 's/origin\///')
+          echo "Hotfix branches found: $HOTFIX_BRANCHES"
+
+          # 次のHotfixブランチを探す
+          NEXT_HOTFIX_BRANCH=""
+          for BRANCH in $HOTFIX_BRANCHES; do
+            BRANCH_VERSION=${BRANCH#hotfix/v}
+            if [[ $(echo -e "$HOTFIX_VERSION\n$BRANCH_VERSION" | sort -V | tail -n 1) == "$BRANCH_VERSION" ]] && [[ "$HOTFIX_VERSION" != "$BRANCH_VERSION" ]]; then
+              NEXT_HOTFIX_BRANCH=$BRANCH
+              break
+            fi
+          done
+
+          if [[ -n "$NEXT_HOTFIX_BRANCH" ]]; then
+            echo "Creating PR for next Hotfix branch: $NEXT_HOTFIX_BRANCH"
+            gh pr create \
+              --base $NEXT_HOTFIX_BRANCH \
+              --head $HOTFIX_BRANCH \
+              --title "Hotfix: Merge $HOTFIX_BRANCH into $NEXT_HOTFIX_BRANCH" \
+              --body "This is an automated PR to merge hotfix changes into the $NEXT_HOTFIX_BRANCH branch."
+          else
+            echo "No next Hotfix branch found. Skipping."
+          fi
+
       # リリースブランチへのPRを作成
       - name: Create PRs to Release Branches
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOTFIX_VERSION: ${{ env.HOTFIX_VERSION }}
+          HOTFIX_BRANCH: ${{ env.HOTFIX_BRANCH }}
         run: |
           # すべてのリリースブランチを取得
           RELEASE_BRANCHES=$(git branch -r | grep -E 'origin/release/v[0-9]+\.[0-9]+\.[0-9]+' | sed 's/origin\///')
           echo "Release branches found: $RELEASE_BRANCHES"
-
-          # 一度hotfixのブランチ名称を取得してから、hotfixバージョン番号を取得 (例: hotfix/v1.20.0 -> 1.20.0)
-          HOTFIX_BRANCH=${{ env.HOTFIX_BRANCH }}
-
-          HOTFIX_VERSION=${HOTFIX_BRANCH#hotfix/v}
-          echo "Hotfix version: $HOTFIX_VERSION"
 
           # 各リリースブランチにPRを作成
           for RELEASE_BRANCH in $RELEASE_BRANCHES; do
@@ -65,8 +95,8 @@ jobs:
               echo "Creating PR for $RELEASE_BRANCH"
               gh pr create \
                 --base $RELEASE_BRANCH \
-                --head ${{ env.HOTFIX_BRANCH }} \
-                --title "Hotfix: Merge ${{ env.HOTFIX_BRANCH }} into $RELEASE_BRANCH" \
+                --head $HOTFIX_BRANCH \
+                --title "Hotfix: Merge $HOTFIX_BRANCH into $RELEASE_BRANCH" \
                 --body "This is an automated PR to merge hotfix changes into the $RELEASE_BRANCH branch."
             fi
           done
