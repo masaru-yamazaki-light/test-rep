@@ -11,6 +11,9 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event.pull_request.merged == true && startsWith(github.head_ref, 'hotfix/')
     steps:
+      - name: Debug head_ref
+        run: echo "github.head_ref=${{ github.head_ref }}"
+
       # リポジトリのチェックアウト
       - name: Checkout Repository
         uses: actions/checkout@v3
@@ -43,8 +46,10 @@ jobs:
           RELEASE_BRANCHES=$(git branch -r | grep -E 'origin/release/v[0-9]+\.[0-9]+\.[0-9]+' | sed 's/origin\///')
           echo "Release branches found: $RELEASE_BRANCHES"
 
-          # hotfixバージョン番号を取得 (例: hotfix/v1.20.0 -> 1.20.0)
-          HOTFIX_VERSION=${{ env.HOTFIX_BRANCH#hotfix/v }}
+          # 一度hotfixのブランチ名称を取得してから、hotfixバージョン番号を取得 (例: hotfix/v1.20.0 -> 1.20.0)
+          HOTFIX_BRANCH=${{ env.HOTFIX_BRANCH }}
+
+          HOTFIX_VERSION=${HOTFIX_BRANCH#hotfix/v}
           echo "Hotfix version: $HOTFIX_VERSION"
 
           # 各リリースブランチにPRを作成
