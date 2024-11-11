@@ -1,0 +1,63 @@
+name: Hotfix to Develop and Release
+
+on:
+  pull_request:
+    branches:
+      - main
+    types: [closed]
+
+jobs:
+  create_prs:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.merged == true && startsWith(github.head_ref, 'hotfix/')
+    steps:
+      # リポジトリのチェックアウト
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      # 環境変数にhotfixブランチ名を保存
+      - name: Extract Hotfix Branch Name
+        run: |
+          HOTFIX_BRANCH=${{ github.head_ref }}
+          echo "HOTFIX_BRANCH=${HOTFIX_BRANCH}" >> $GITHUB_ENV
+
+      # DevelopブランチへのPRを作成
+      - name: Create PR to Develop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr create \
+            --base develop \
+            --head ${{ env.HOTFIX_BRANCH }} \
+            --title "Hotfix: Merge ${{ env.HOTFIX_BRANCH }} into Develop" \
+            --body "This is an automated PR to merge hotfix changes into the develop branch."
+
+      # リリースブランチへのPRを作成
+      - name: Create PRs to Release Branches
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # すべてのリリースブランチを取得
+          RELEASE_BRANCHES=$(git branch -r | grep -E 'origin/release/v[0-9]+\.[0-9]+\.[0-9]+' | sed 's/origin\///')
+          echo "Release branches found: $RELEASE_BRANCHES"
+
+          # hotfixバージョン番号を取得 (例: hotfix/v1.20.0 -> 1.20.0)
+          HOTFIX_VERSION=${{ env.HOTFIX_BRANCH#hotfix/v }}
+          echo "Hotfix version: $HOTFIX_VERSION"
+
+          # 各リリースブランチにPRを作成
+          for RELEASE_BRANCH in $RELEASE_BRANCHES; do
+            RELEASE_VERSION=${RELEASE_BRANCH#release/v}
+
+            # バージョン比較
+            if [[ $(echo -e "$HOTFIX_VERSION\n$RELEASE_VERSION" | sort -V | tail -n 1) == "$RELEASE_VERSION" ]] && [[ "$HOTFIX_VERSION" != "$RELEASE_VERSION" ]]; then
+              echo "Creating PR for $RELEASE_BRANCH"
+              gh pr create \
+                --base $RELEASE_BRANCH \
+                --head ${{ env.HOTFIX_BRANCH }} \
+                --title "Hotfix: Merge ${{ env.HOTFIX_BRANCH }} into $RELEASE_BRANCH" \
+                --body "This is an automated PR to merge hotfix changes into the $RELEASE_BRANCH branch."
+            fi
+          done
