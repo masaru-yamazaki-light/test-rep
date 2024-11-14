@@ -40,6 +40,7 @@ jobs:
           HOTFIX_VERSION=${HOTFIX_BRANCH#hotfix/v}
           echo "TAG_NAME=${TAG_NAME}" >> $GITHUB_ENV
           echo "TAG_COMMIT=${TAG_COMMIT}" >> $GITHUB_ENV
+          echo "DEBUG: Extracted HOTFIX_VERSION is $HOTFIX_VERSION"
           echo "HOTFIX_VERSION=${HOTFIX_VERSION}" >> $GITHUB_ENV
 
       # タグ形式を検証 (Hotfixタグかどうか)
@@ -53,14 +54,6 @@ jobs:
             echo "Tag $TAG_NAME is not a valid Hotfix tag. Skipping."
             exit 0
           fi
-
-      # 環境変数にHotfixブランチ名とバージョンを保存
-      - name: Extract Hotfix Branch Name and Version
-        if: ${{ success() }}
-        run: |
-          HOTFIX_VERSION=${HOTFIX_BRANCH#hotfix/v}
-          echo "HOTFIX_BRANCH=${HOTFIX_BRANCH}" >> $GITHUB_ENV
-          echo "HOTFIX_VERSION=${HOTFIX_VERSION}" >> $GITHUB_ENV
 
       # DevelopブランチへのPRを作成
       - name: Create PR to Develop
