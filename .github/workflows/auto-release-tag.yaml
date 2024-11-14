@@ -11,6 +11,7 @@ jobs:
   main:
     permissions:
       contents: write
+      actions: read # GitHub Actionsの実行権限を付与(tagのpushでトリガーするGitHubActionsのため)
     if: github.event.pull_request.merged == true && (contains(github.head_ref, 'release') || contains(github.head_ref, 'hotfix'))
     runs-on: ubuntu-latest
     steps:
