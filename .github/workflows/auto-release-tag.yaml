@@ -36,7 +36,8 @@ jobs:
         run: |
           TAG_NAME=${{ github.head_ref }}
           TAG_COMMIT=$(git rev-parse HEAD)
-          HOTFIX_VERSION=${TAG_NAME#v}
+          HOTFIX_BRANCH=${{ github.head_ref }}
+          HOTFIX_VERSION=${HOTFIX_BRANCH#hotfix/v}
           echo "TAG_NAME=${TAG_NAME}" >> $GITHUB_ENV
           echo "TAG_COMMIT=${TAG_COMMIT}" >> $GITHUB_ENV
           echo "HOTFIX_VERSION=${HOTFIX_VERSION}" >> $GITHUB_ENV
@@ -87,6 +88,7 @@ jobs:
           # 指定バージョンより上のHotfixブランチに対してPRを作成
           for BRANCH in $HOTFIX_BRANCHES; do
             BRANCH_VERSION=${BRANCH#hotfix/v}
+            echo "Comparing $HOTFIX_VERSION with $BRANCH_VERSION"
             if [[ $(echo -e "$HOTFIX_VERSION\n$BRANCH_VERSION" | sort -V | head -n 1) == "$HOTFIX_VERSION" ]] && [[ "$HOTFIX_VERSION" != "$BRANCH_VERSION" ]]; then
               echo "Creating PR for Hotfix branch: $BRANCH"
               gh pr create \
