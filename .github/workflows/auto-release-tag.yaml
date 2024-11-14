@@ -18,6 +18,8 @@ jobs:
     steps:
       # リポジトリをチェックアウト
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       # タグをプッシュ
       - name: Push Tag
@@ -34,9 +36,11 @@ jobs:
         run: |
           TAG_NAME=${{ github.head_ref }}
           TAG_COMMIT=$(git rev-parse HEAD)
-          HOTFIX_VERSION=${TAG_NAME#v}
+          HOTFIX_BRANCH=${{ github.head_ref }}
+          HOTFIX_VERSION=${HOTFIX_BRANCH#hotfix/v}
           echo "TAG_NAME=${TAG_NAME}" >> $GITHUB_ENV
           echo "TAG_COMMIT=${TAG_COMMIT}" >> $GITHUB_ENV
+          echo "DEBUG: Extracted HOTFIX_VERSION is $HOTFIX_VERSION"
           echo "HOTFIX_VERSION=${HOTFIX_VERSION}" >> $GITHUB_ENV
 
       # タグ形式を検証 (Hotfixタグかどうか)
@@ -59,42 +63,34 @@ jobs:
         run: |
           gh pr create \
             --base develop \
-            --head ${{ env.TAG_NAME }} \
+            --head main \
             --title "Hotfix: Merge ${{ env.TAG_NAME }} into Develop" \
             --body "This PR merges the hotfix tagged as ${{ env.TAG_NAME }} into the develop branch."
 
       # 他のHotfixブランチへのPRを作成
       - name: Create PR to Next Hotfix Branch
-        if: ${{ success() }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOTFIX_VERSION: ${{ env.HOTFIX_VERSION }}
-          HOTFIX_TAG: ${{ env.TAG_NAME }}
         run: |
           # すべてのHotfixブランチを取得
+          git fetch --prune
           HOTFIX_BRANCHES=$(git branch -r | grep -E 'origin/hotfix/v[0-9]+\.[0-9]+\.[0-9]+' | sed 's/origin\///')
           echo "Hotfix branches found: $HOTFIX_BRANCHES"
 
-          # 次のHotfixブランチを探す
-          NEXT_HOTFIX_BRANCH=""
+          # 指定バージョンより上のHotfixブランチに対してPRを作成
           for BRANCH in $HOTFIX_BRANCHES; do
             BRANCH_VERSION=${BRANCH#hotfix/v}
-            if [[ $(echo -e "$HOTFIX_VERSION\n$BRANCH_VERSION" | sort -V | tail -n 1) == "$BRANCH_VERSION" ]] && [[ "$HOTFIX_VERSION" != "$BRANCH_VERSION" ]]; then
-              NEXT_HOTFIX_BRANCH=$BRANCH
-              break
+            echo "Comparing $HOTFIX_VERSION with $BRANCH_VERSION"
+            if [[ $(echo -e "$HOTFIX_VERSION\n$BRANCH_VERSION" | sort -V | head -n 1) == "$HOTFIX_VERSION" ]] && [[ "$HOTFIX_VERSION" != "$BRANCH_VERSION" ]]; then
+              echo "Creating PR for Hotfix branch: $BRANCH"
+              gh pr create \
+                --base $BRANCH \
+                --head main \
+                --title "Hotfix: Merge ${{ env.TAG_NAME }} into $BRANCH" \
+                --body "This is an automated PR to merge hotfix changes into the $BRANCH branch."
             fi
           done
-
-          if [[ -n "$NEXT_HOTFIX_BRANCH" ]]; then
-            echo "Creating PR for next Hotfix branch: $NEXT_HOTFIX_BRANCH"
-            gh pr create \
-              --base $NEXT_HOTFIX_BRANCH \
-              --head ${{ env.TAG_NAME }} \
-              --title "Hotfix: Merge ${{ env.TAG_NAME }} into $NEXT_HOTFIX_BRANCH" \
-              --body "This is an automated PR to merge hotfix changes into the $NEXT_HOTFIX_BRANCH branch."
-          else
-            echo "No next Hotfix branch found. Skipping."
-          fi
 
       # リリースブランチへのPRを作成
       - name: Create PRs to Release Branches
@@ -102,29 +98,21 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOTFIX_VERSION: ${{ env.HOTFIX_VERSION }}
-          HOTFIX_TAG: ${{ env.TAG_NAME }}
         run: |
+          # すべてのリリースブランチを取得
+          git fetch --prune
           RELEASE_BRANCHES=$(git branch -r | grep -E 'origin/release/v[0-9]+\.[0-9]+\.[0-9]+' | sed 's/origin\///')
           echo "Release branches found: $RELEASE_BRANCHES"
 
-          NEXT_RELEASE_BRANCH=""
+          # 指定バージョンより上のリリースブランチに対してPRを作成
           for BRANCH in $RELEASE_BRANCHES; do
             BRANCH_VERSION=${BRANCH#release/v}
-            echo "Comparing $HOTFIX_VERSION with $BRANCH_VERSION"
-            if [[ $(echo -e "$HOTFIX_VERSION\n$BRANCH_VERSION" | sort -V | tail -n 1) == "$BRANCH_VERSION" ]] && [[ "$HOTFIX_VERSION" != "$BRANCH_VERSION" ]]; then
-              NEXT_RELEASE_BRANCH=$BRANCH
-              break
+            if [[ $(echo -e "$HOTFIX_VERSION\n$BRANCH_VERSION" | sort -V | head -n 1) == "$HOTFIX_VERSION" ]] && [[ "$HOTFIX_VERSION" != "$BRANCH_VERSION" ]]; then
+              echo "Creating PR for Release branch: $BRANCH"
+              gh pr create \
+                --base $BRANCH \
+                --head main \
+                --title "Hotfix: Merge ${{ env.TAG_NAME }} into $BRANCH" \
+                --body "This is an automated PR to merge hotfix changes into the $BRANCH branch."
             fi
           done
-
-          if [[ -z "$NEXT_RELEASE_BRANCH" ]]; then
-            echo "No valid Release branch found to create PR. Skipping."
-            exit 0
-          fi
-
-          echo "Creating PR for next Release branch: $NEXT_RELEASE_BRANCH"
-          gh pr create \
-            --base $NEXT_RELEASE_BRANCH \
-            --head ${{ env.TAG_NAME }} \
-            --title "Hotfix: Merge ${{ env.TAG_NAME }} into $NEXT_RELEASE_BRANCH" \
-            --body "This is an automated PR to merge hotfix changes into the $NEXT_RELEASE_BRANCH branch."
