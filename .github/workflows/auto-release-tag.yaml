@@ -59,7 +59,7 @@ jobs:
         run: |
           gh pr create \
             --base develop \
-            --head ${{ env.TAG_COMMIT }} \
+            --head ${{ env.TAG_NAME }} \  
             --title "Hotfix: Merge ${{ env.TAG_NAME }} into Develop" \
             --body "This PR merges the hotfix tagged as ${{ env.TAG_NAME }} into the develop branch."
 
