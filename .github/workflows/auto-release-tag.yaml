@@ -1,5 +1,5 @@
-name: Auto Release Tag
-run-name: Tag for ${{ github.head_ref }}
+name: Auto Release Tag and PRs
+run-name: Tag and Create PR for ${{ github.head_ref }}
 on:
   pull_request:
     types:
@@ -8,15 +8,111 @@ on:
       - main
 
 jobs:
-  main:
+  tag_and_create_pr:
     permissions:
       contents: write
+      pull-requests: write
     if: github.event.pull_request.merged == true && (contains(github.head_ref, 'release') || contains(github.head_ref, 'hotfix'))
     runs-on: ubuntu-latest
+
     steps:
+      # リポジトリをチェックアウト
       - uses: actions/checkout@v4
-      - name: Push tag
+        with:
+          fetch-depth: 0
+
+      # タグをプッシュ
+      - name: Push Tag
         run: |
           release_branch=${{ github.head_ref }}
           version=$(echo $release_branch | awk -F/ '{print $2}')
-          git tag ${version} && git push origin ${version}
+          git tag ${version}
+          git push origin ${version}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # タグ情報を抽出
+      - name: Extract Tag Information
+        run: |
+          TAG_NAME=${{ github.head_ref }}
+          TAG_COMMIT=$(git rev-parse HEAD)
+          HOTFIX_BRANCH=${{ github.head_ref }}
+          HOTFIX_VERSION=${HOTFIX_BRANCH#hotfix/v}
+          echo "TAG_NAME=${TAG_NAME}" >> $GITHUB_ENV
+          echo "TAG_COMMIT=${TAG_COMMIT}" >> $GITHUB_ENV
+          echo "DEBUG: Extracted HOTFIX_VERSION is $HOTFIX_VERSION"
+          echo "HOTFIX_VERSION=${HOTFIX_VERSION}" >> $GITHUB_ENV
+
+      # タグ形式を検証 (Hotfixタグかどうか)
+      - name: Validate Hotfix Tag
+        run: |
+          TAG_NAME=${{ env.TAG_NAME }}
+          echo "Validating tag: $TAG_NAME"
+
+          # 正規表現でHotfixタグを検証（vX.Y.Z形式かつZ(パッチバージョン)が0以外）
+          if [[ ! "$TAG_NAME" =~ ^v[0-9]+\.[0-9]+\.[1-9][0-9]*$ ]]; then
+            echo "Tag $TAG_NAME is not a valid Hotfix tag. Skipping."
+            exit 0
+          fi
+
+      # DevelopブランチへのPRを作成
+      - name: Create PR to Develop
+        if: ${{ success() }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr create \
+            --base develop \
+            --head main \
+            --title "Hotfix: Merge ${{ env.TAG_NAME }} into Develop" \
+            --body "This PR merges the hotfix tagged as ${{ env.TAG_NAME }} into the develop branch."
+
+      # 他のHotfixブランチへのPRを作成
+      - name: Create PR to Next Hotfix Branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOTFIX_VERSION: ${{ env.HOTFIX_VERSION }}
+        run: |
+          # すべてのHotfixブランチを取得
+          git fetch --prune
+          HOTFIX_BRANCHES=$(git branch -r | grep -E 'origin/hotfix/v[0-9]+\.[0-9]+\.[0-9]+' | sed 's/origin\///')
+          echo "Hotfix branches found: $HOTFIX_BRANCHES"
+
+          # 指定バージョンより上のHotfixブランチに対してPRを作成
+          for BRANCH in $HOTFIX_BRANCHES; do
+            BRANCH_VERSION=${BRANCH#hotfix/v}
+            echo "Comparing $HOTFIX_VERSION with $BRANCH_VERSION"
+            if [[ $(echo -e "$HOTFIX_VERSION\n$BRANCH_VERSION" | sort -V | head -n 1) == "$HOTFIX_VERSION" ]] && [[ "$HOTFIX_VERSION" != "$BRANCH_VERSION" ]]; then
+              echo "Creating PR for Hotfix branch: $BRANCH"
+              gh pr create \
+                --base $BRANCH \
+                --head main \
+                --title "Hotfix: Merge ${{ env.TAG_NAME }} into $BRANCH" \
+                --body "This is an automated PR to merge hotfix changes into the $BRANCH branch."
+            fi
+          done
+
+      # リリースブランチへのPRを作成
+      - name: Create PRs to Release Branches
+        if: ${{ success() }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOTFIX_VERSION: ${{ env.HOTFIX_VERSION }}
+        run: |
+          # すべてのリリースブランチを取得
+          git fetch --prune
+          RELEASE_BRANCHES=$(git branch -r | grep -E 'origin/release/v[0-9]+\.[0-9]+\.[0-9]+' | sed 's/origin\///')
+          echo "Release branches found: $RELEASE_BRANCHES"
+
+          # 指定バージョンより上のリリースブランチに対してPRを作成
+          for BRANCH in $RELEASE_BRANCHES; do
+            BRANCH_VERSION=${BRANCH#release/v}
+            if [[ $(echo -e "$HOTFIX_VERSION\n$BRANCH_VERSION" | sort -V | head -n 1) == "$HOTFIX_VERSION" ]] && [[ "$HOTFIX_VERSION" != "$BRANCH_VERSION" ]]; then
+              echo "Creating PR for Release branch: $BRANCH"
+              gh pr create \
+                --base $BRANCH \
+                --head main \
+                --title "Hotfix: Merge ${{ env.TAG_NAME }} into $BRANCH" \
+                --body "This is an automated PR to merge hotfix changes into the $BRANCH branch."
+            fi
+          done
