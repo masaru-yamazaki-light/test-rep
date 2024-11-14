@@ -41,7 +41,6 @@ jobs:
 
       # タグ形式を検証 (Hotfixタグかどうか)
       - name: Validate Hotfix Tag
-        id: validate
         run: |
           TAG_NAME=${{ env.TAG_NAME }}
           echo "Validating tag: $TAG_NAME"
@@ -54,7 +53,7 @@ jobs:
 
       # DevelopブランチへのPRを作成
       - name: Create PR to Develop
-        if: steps.validate.outcome == "success"
+        if: ${{ success() }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -66,7 +65,7 @@ jobs:
 
       # 他のHotfixブランチへのPRを作成
       - name: Create PR to Next Hotfix Branch
-        if: steps.validate.outcome == "success"
+        if: ${{ success() }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOTFIX_VERSION: ${{ env.HOTFIX_VERSION }}
@@ -94,7 +93,7 @@ jobs:
 
       # リリースブランチへのPRを作成
       - name: Create PRs to Release Branches
-        if: steps.validate.outcome == "success"
+        if: ${{ success() }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOTFIX_VERSION: ${{ env.HOTFIX_VERSION }}
